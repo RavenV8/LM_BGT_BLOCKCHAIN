@@ -12,12 +12,12 @@ public:
     std::vector<Transaction> transactions;
 
     friend std::ostream& operator<<(std::ostream& os, const Block& block) {
-        os << "prev_block_hash: " << block.prev_block_hash << "\n"
-           << "timestamp: " << block.timestamp << "\n"
-           << "version: " << block.version << "\n"
-           << "merkle_root_hash: " << block.merkle_root_hash << "\n"
-           << "nonce: " << block.nonce << "\n"
-           << "difficulty_target: " << block.difficulty_target << "\n";
+        os << "Block hash: " << block.merkle_root_hash << "\n" 
+           << "Previous block hash: " << block.prev_block_hash << "\n"
+           << "Mined on: " << block.timestamp << "\n"
+           << "Nonce: " << block.nonce << "\n"
+           << "Difficulty target: " << block.difficulty_target << "\n"
+           << "-------------------------------------------------------" << "\n";
         return os;
     }
 };
@@ -27,15 +27,12 @@ std::vector<Transaction> selectTransactions(std::vector<Transaction>& transactio
     std::mt19937 rng(rd());
     std::shuffle(transactionPool.begin(), transactionPool.end(), rng);
 
-    for (int i =0; i<4; i++){
-        std::cout << transactionPool[i] << std::endl;
-    }
-
     std::vector<Transaction> selectedTransactions;
     selectedTransactions.reserve(100);
 
     for (int i = 0; i < 100; ++i) {
         selectedTransactions.push_back(transactionPool[i]);
+        transactionPool.erase(transactionPool.begin() + i);
     }
 
     return selectedTransactions;
@@ -98,6 +95,24 @@ std::string calculateMerkleRoot(const std::vector<Transaction>& transactions) {
     return transactionHashes[0];
 }
 
+std::string calculateBlockHash(const Block& block) {
+    // Implement your hash function here (replace with the actual hashing logic)
+    std::string blockData = block.prev_block_hash + block.timestamp + std::to_string(block.version) +
+                            block.merkle_root_hash + std::to_string(block.nonce) + std::to_string(block.difficulty_target);
+
+    return Hashing(blockData);
+}
+
+bool isProofOfWorkValid(const std::string& blockHash, int difficultyTarget) {
+    // Check if the hash meets the difficulty target (has the required number of leading zeros)
+    for (int i = 0; i < difficultyTarget; ++i) {
+        if (blockHash[i] != '0') {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string calculatePreviousBlockHash(std::vector<std::string>& prevHash) {
     if (!prevHash.empty()) {
         return prevHash.back();
@@ -106,35 +121,44 @@ std::string calculatePreviousBlockHash(std::vector<std::string>& prevHash) {
     }
 }
 // Function to create a new block with the selected transactions
-Block createBlock(std::vector<std::string>& prevHash, std::vector<Transaction>& selectedTransactions) {
+Block createBlock(std::vector<std::string>& prevHash, std::vector<Transaction>& selectedTransactions, int difficultyTarget) {
     Block block;
     
     // Set block attributes
     block.prev_block_hash = calculatePreviousBlockHash(prevHash);
 
-
-
-    auto currentTime = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(currentTime.time_since_epoch()).count();
-    std::time_t timestampAsTimeT = static_cast<std::time_t>(timestamp);
-    std::tm* timeinfo = std::localtime(&timestampAsTimeT);
-    char buffer[80];
-    std::strftime(buffer, sizeof(buffer), "%d %b %Y, %H:%M:%S", timeinfo);
-    block.timestamp = buffer;
-
-
-
     block.version = 1;  // Set the version number as needed
-    block.merkle_root_hash = calculateMerkleRoot(selectedTransactions);
+    block.difficulty_target = std::abs(difficultyTarget); 
+    block.nonce = 0;
+    // Mine the block by finding a suitable nonce
+    while (true) {
+        block.nonce++;  // Increment the nonce
+        
+        block.merkle_root_hash = calculateMerkleRoot(selectedTransactions);
+        std::string blockHash = calculateBlockHash(block);
 
-    block.nonce = 0;  // Initial nonces
-    block.difficulty_target = 5;  // Set the difficulty target as needed
+        // Check if the mined hash meets the difficulty target
+        if (isProofOfWorkValid(blockHash, difficultyTarget)) {
 
-    // Set block transactions
-    block.transactions = selectedTransactions;
+            auto currentTime = std::chrono::system_clock::now();
+            auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(currentTime.time_since_epoch()).count();
+            std::time_t timestampAsTimeT = static_cast<std::time_t>(timestamp);
+            std::tm* timeinfo = std::localtime(&timestampAsTimeT);
+            char buffer[80];
+            std::strftime(buffer, sizeof(buffer), "%d %b %Y, %H:%M:%S", timeinfo);
+            block.timestamp = buffer;
 
-    prevHash.push_back(block.merkle_root_hash);
-    return block;
+            // Set the difficulty target for the block
+            block.difficulty_target = std::abs(difficultyTarget);  // Ensure difficulty target is positive
+            // Set block transactions
+            block.transactions = selectedTransactions;
+            // Add the Merkle Root Hash to the previous hashes
+            prevHash.push_back(block.merkle_root_hash);
+            block.merkle_root_hash = blockHash;
+            return block;
+        }
+        //std::cout << std::endl << std::endl << blockHash << std::endl << std::endl;
+    }
 }
 
 int main() {
@@ -142,18 +166,24 @@ int main() {
     
     std::vector<Transaction> transactionPool;
     readingTransactions(transactionPool);
-    std::vector<Transaction> selectedTransactions = selectTransactions(transactionPool);
-
-    std::vector<Transaction> test = selectedTransactions;
-    std::string merkleRoot = calculateMerkleRoot(test);
-    std::cout << "Merkle Root: " << merkleRoot << std::endl << std::endl;
+    std::vector<Transaction> selectedTransactions;
 
     // Create a new block with the selected transactions
-    Block newBlock = createBlock(prevHash, selectedTransactions);
-    std::cout << newBlock << std::endl;
+    int difficultyTarget = 1;
+    int numberOfBlocks = 0;
+    while(transactionPool.size() > 0){
+        selectedTransactions = selectTransactions(transactionPool);
+        Block newBlock = createBlock(prevHash, selectedTransactions, difficultyTarget);
+        numberOfBlocks++;
+        std::cout << "----------------------BLOCK-" << numberOfBlocks << "------------------------" << "\n";
+        std::cout << newBlock << std::endl;
 
-    newBlock = createBlock(prevHash, selectedTransactions);
-    std::cout << newBlock << std::endl;
+    }
+
+    
+
+    // newBlock = createBlock(prevHash, selectedTransactions, difficultyTarget);
+    // std::cout << newBlock << std::endl;
 
     // Print or handle the new block as needed
 
