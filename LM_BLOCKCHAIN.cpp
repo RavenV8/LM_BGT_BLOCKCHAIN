@@ -1,72 +1,104 @@
-#include <iostream>
-#include <vector>
-#include <string>
-#include <ctime>
-#include <cstdlib>
-
-class User {
-public:
-    std::string name;
-    std::string public_key;
-    double balance;
-
-    User(std::string n, std::string pk, double b) : name(n), public_key(pk), balance(b) {}
-};
-
-class Transaction {
-public:
-    std::string transaction_id;
-    std::string sender_public_key;
-    std::string receiver_public_key;
-    double amount;
-
-    Transaction(std::string id, std::string sender, std::string receiver, double amt)
-        : transaction_id(id), sender_public_key(sender), receiver_public_key(receiver), amount(amt) {}
-};
+#include "headers.h"  // Assuming headers.h is in the same directory as this source file
+#include "LM_hash.h"
 
 class Block {
 public:
     std::string prev_block_hash;
-    time_t timestamp;
+    std::string timestamp;
     int version;
     std::string merkle_root_hash;
     int nonce;
     int difficulty_target;
-
-    Block(std::string prev_hash, int ver, int target)
-        : prev_block_hash(prev_hash), version(ver), difficulty_target(target) {
-        timestamp = time(nullptr);
-        nonce = 0;
-    }
+    std::vector<Transaction> transactions;
 };
 
-int main() {
-    std::vector<User> users;
-    for (int i = 0; i < 1000; i++) {
-        std::string name = "User" + std::to_string(i);
-        std::string public_key = "Public_Key" + std::to_string(i);
-        double balance = 100 + (rand() % 990901);  // Random balance between 100 and 1,000,000
-        users.push_back(User(name, public_key, balance));
+std::vector<Transaction> selectTransactions(std::vector<Transaction>& transactionPool) {
+    std::random_device rd;
+    std::mt19937 rng(rd());
+    std::shuffle(transactionPool.begin(), transactionPool.end(), rng);
+
+    for (int i =0; i<4; i++){
+        std::cout << transactionPool[i] << std::endl;
     }
+
+    std::vector<Transaction> selectedTransactions;
+    selectedTransactions.reserve(100);
+
+    for (int i = 0; i < 100; ++i) {
+        selectedTransactions.push_back(transactionPool[i]);
+    }
+
+    return selectedTransactions;
+}
+
+
+
+void readingTransactions(std::vector<Transaction>& transactionPool){
+    double amount;
+    std::string sender, receiver, transactionId;
+
+    std::ifstream transactionFile("transactions.txt");
+    while (transactionFile >> transactionId >> sender >> receiver >> amount) {
+        Transaction transaction;
+        transaction.transaction_id = transactionId;
+        transaction.sender_public_key = sender;
+        transaction.receiver_public_key = receiver;
+        transaction.amount = amount;
+
+        transactionPool.push_back(transaction);
+    }
+    transactionFile.close();
+
+    if (transactionPool.size() < 100) {
+        std::cout << "Nepakanka transakciju. Turiu " << transactionPool.size() << " transakciju." << std::endl;
+        exit(EXIT_FAILURE);
+    }
+}
+
+std::string calculateMerkleRoot(const std::vector<Transaction>& transactions) {
+    std::vector<std::string> transactionHashes;
+
+    
+    for (const Transaction& transaction : transactions) {
+        transactionHashes.push_back(transaction.transaction_id);
+    }
+
+    
+    if (transactionHashes.empty()) {
+        return "";
+    }
+
+    
+    while (transactionHashes.size() > 1) {
+        std::vector<std::string> newHashes;
+
+
+        for (size_t i = 0; i < transactionHashes.size(); i += 2) {
+
+            const std::string& hash1 = transactionHashes[i];
+            const std::string& hash2 = (i + 1 < transactionHashes.size()) ? transactionHashes[i + 1] : transactionHashes[i];
+            std::string combinedHash = Hashing(hash1 + hash2);
+
+            newHashes.push_back(combinedHash);
+        }
+
+
+        transactionHashes = std::move(newHashes);
+    }
+
+    return transactionHashes[0];
+}
+
+int main() {
+    // Perskaitomos transakcijos ir isrenkama 100 atsitiktinai
+    std::vector<Transaction> transactionPool;
+    readingTransactions(transactionPool);
+    std::vector<Transaction> selectedTransactions = selectTransactions(transactionPool);
 
     std::vector<Transaction> transactions;
-    for (int i = 0; i < 10000; i++) {
-        std::string transaction_id = "TxID" + std::to_string(i);
-        std::string sender = users[rand() % users.size()].public_key;
-        std::string receiver = users[rand() % users.size()].public_key;
-        double amount = rand() % 1000;
-        transactions.push_back(Transaction(transaction_id, sender, receiver, amount));
-    }
+    std::string merkleRoot = calculateMerkleRoot(transactionPool);
+    std::cout << "Merkle Root: " << merkleRoot << std::endl;
 
-    Block new_block("Previous_Hash", 1, 4);
-    while (true) {
-        std::string candidate_hash = "Hash calculation result using PoW logic";
-        if (candidate_hash.substr(0, new_block.difficulty_target) == std::string(new_block.difficulty_target, '0')) {
-            new_block.merkle_root_hash = "Calculated_Merkle_Root_Hash";
-            break;
-        }
-        new_block.nonce++;
-    }
 
     return 0;
 }
