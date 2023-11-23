@@ -22,7 +22,7 @@ public:
     }
 };
 
-std::vector<Transaction> selectTransactions(std::vector<Transaction>& transactionPool) {
+std::vector<Transaction> selectTransactions(std::vector<Transaction>& transactionPool, std::vector<Users>& users) {
     std::random_device rd;
     std::mt19937 rng(rd());
     std::shuffle(transactionPool.begin(), transactionPool.end(), rng);
@@ -30,13 +30,32 @@ std::vector<Transaction> selectTransactions(std::vector<Transaction>& transactio
     std::vector<Transaction> selectedTransactions;
     selectedTransactions.reserve(100);
 
-    for (int i = 0; i < 100; ++i) {
-        selectedTransactions.push_back(transactionPool[i]);
-        transactionPool.erase(transactionPool.begin() + i);
+    for (int i = 0; i < 100 && i < transactionPool.size(); ++i) {
+        const Transaction& currentTransaction = transactionPool[i];
+
+        // Find the sender in the users vector
+        bool senderFound = false;
+        for (auto& user : users) {
+            if (user.public_key == currentTransaction.sender_public_key) {
+                if (user.balance >= currentTransaction.amount){
+                    selectedTransactions.push_back(currentTransaction);
+                    // Update the balance (assuming balances are being deducted for transactions)
+                    user.balance -= currentTransaction.amount;
+                    senderFound = true;
+                    break;  // No need to continue searching
+                }
+                else {
+                    std::cout<<transactionPool[i].amount<<std::endl;
+                }
+            }
+        }
     }
+
+    transactionPool.erase(transactionPool.begin(), transactionPool.begin() + 100);
 
     return selectedTransactions;
 }
+
 
 void readingTransactions(std::vector<Transaction>& transactionPool){
     double amount;
@@ -53,50 +72,53 @@ void readingTransactions(std::vector<Transaction>& transactionPool){
         transactionPool.push_back(transaction);
     }
     transactionFile.close();
+}
 
-    if (transactionPool.size() < 100) {
-        std::cout << "Nepakanka transakciju. Turiu " << transactionPool.size() << " transakciju." << std::endl;
-        exit(EXIT_FAILURE);
+void readingUsers(std::vector<Users>& userPool){
+    double balance;
+    std::string name, public_key;
+
+    std::ifstream userFile("transactions.txt");
+    while (userFile >> name >> public_key >> balance) {
+        Users user;
+        user.name = name;
+        user.public_key = public_key;
+        user.balance = balance;
+
+        userPool.push_back(user);
     }
+    userFile.close();
 }
 
 std::string calculateMerkleRoot(const std::vector<Transaction>& transactions) {
     std::vector<std::string> transactionHashes;
 
-    // Extract transaction hashes
     for (const Transaction& transaction : transactions) {
         transactionHashes.push_back(transaction.transaction_id);
     }
 
-    // If there are no transactions, return an empty string
+    // Jei nera tranzakciju grazina tuscia
     if (transactionHashes.empty()) {
         return "";
     }
 
-    // Continue building the Merkle Tree until only one hash (the Merkle Root) remains
     while (transactionHashes.size() > 1) {
         std::vector<std::string> newHashes;
 
-        // Combine pairs of hashes and hash them together
         for (size_t i = 0; i < transactionHashes.size(); i += 2) {
-            // If there's an odd number of hashes, duplicate the last one
+
             const std::string& hash1 = transactionHashes[i];
             const std::string& hash2 = (i + 1 < transactionHashes.size()) ? transactionHashes[i + 1] : transactionHashes[i];
             std::string combinedHash = Hashing(hash1 + hash2);
 
             newHashes.push_back(combinedHash);
         }
-
-        // Replace the old hashes with the new ones
         transactionHashes = std::move(newHashes);
     }
-
-    // The last remaining hash is the Merkle Root
     return transactionHashes[0];
 }
 
 std::string calculateBlockHash(const Block& block) {
-    // Implement your hash function here (replace with the actual hashing logic)
     std::string blockData = block.prev_block_hash + block.timestamp + std::to_string(block.version) +
                             block.merkle_root_hash + std::to_string(block.nonce) + std::to_string(block.difficulty_target);
 
@@ -104,7 +126,6 @@ std::string calculateBlockHash(const Block& block) {
 }
 
 bool isProofOfWorkValid(const std::string& blockHash, int difficultyTarget) {
-    // Check if the hash meets the difficulty target (has the required number of leading zeros)
     for (int i = 0; i < difficultyTarget; ++i) {
         if (blockHash[i] != '0') {
             return false;
@@ -120,14 +141,12 @@ std::string calculatePreviousBlockHash(std::vector<std::string>& prevHash) {
         return "0000000000000000000000000000000000000000000000000000000000000000";
     }
 }
-// Function to create a new block with the selected transactions
+
 Block createBlock(std::vector<std::string>& prevHash, std::vector<Transaction>& selectedTransactions, int difficultyTarget) {
     Block block;
     
-    // Set block attributes
     block.prev_block_hash = calculatePreviousBlockHash(prevHash);
 
-    block.version = 1;  // Set the version number as needed
     block.difficulty_target = std::abs(difficultyTarget); 
     block.nonce = 0;
     // Mine the block by finding a suitable nonce
@@ -153,7 +172,7 @@ Block createBlock(std::vector<std::string>& prevHash, std::vector<Transaction>& 
             // Set block transactions
             block.transactions = selectedTransactions;
             // Add the Merkle Root Hash to the previous hashes
-            prevHash.push_back(block.merkle_root_hash);
+            prevHash.push_back(blockHash);
             block.merkle_root_hash = blockHash;
             return block;
         }
@@ -166,18 +185,20 @@ int main() {
     
     std::vector<Transaction> transactionPool;
     readingTransactions(transactionPool);
-    std::vector<Transaction> selectedTransactions;
+    std::vector<Users> userPool;
+    readingUsers(userPool);
 
+    std::vector<Transaction> selectedTransactions;
+    std::vector<Block> newBlock;
     // Create a new block with the selected transactions
     int difficultyTarget = 1;
     int numberOfBlocks = 0;
     while(transactionPool.size() > 0){
-        selectedTransactions = selectTransactions(transactionPool);
-        Block newBlock = createBlock(prevHash, selectedTransactions, difficultyTarget);
+        selectedTransactions = selectTransactions(transactionPool, userPool);
+        newBlock.push_back(createBlock(prevHash, selectedTransactions, difficultyTarget)); 
+        std::cout << "----------------------BLOCK-" << numberOfBlocks+1 << "------------------------" << "\n";
+        std::cout << newBlock[numberOfBlocks] << std::endl;
         numberOfBlocks++;
-        std::cout << "----------------------BLOCK-" << numberOfBlocks << "------------------------" << "\n";
-        std::cout << newBlock << std::endl;
-
     }
 
     
